@@ -1,34 +1,131 @@
 ---
 title: "EV Power - Lab 4 Project Report"
 format: typst
+fig-format: png
 ---
 
-# Example Solution 1
+# Project 4: EV Power - Colin Choe
 
 ## **Part 0: libraries**
 
 ```{r}
-
+library(knitr)
+knitr::opts_chunk$set(dev = "ragg_png", dpi = 200, fig.width = 7, fig.height = 4.3, fig.align = "center")
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: **Which states increased their renewable energy use most from 2022 to 2023?**
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+renew_2022 <- read_csv("data/renew-use-2022.csv")
+renew_2023 <- read_csv("data/renew-use-2023.csv")
 
+clean_numbers <- function(x) {
+  x |>
+    str_replace_all("[^0-9.]", "") |>  # keep only digits and periods
+    as.numeric()
+}
+
+names(renew_2022) <- names(renew_2022) |>
+  tolower() |>
+  str_replace_all("[- ]", "_")
+
+names(renew_2023) <- names(renew_2023) |>
+  tolower() |>
+  str_replace_all("[- ]", "_")
+
+
+renew_2022 <- renew_2022 %>%
+  rename(state = state, source = energy_source, renewable_use = renewable_use_2022) %>%
+  mutate(
+    state = str_to_upper(state),
+    source = str_to_title(source),
+    renewable_use = clean_numbers(renewable_use)
+  )
+
+renew_2023 <- renew_2023 %>%
+  rename(state = state, source = energy_source, renewable_use = renewable_use_2023) %>%
+  mutate(
+    state = str_to_upper(state),
+    source = str_to_title(source),
+    renewable_use = clean_numbers(renewable_use)
+  )
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
 ```{r}
+renew_2022_state <- renew_2022 %>%
+  group_by(state) %>%
+  summarise(total_renew_2022 = sum(renewable_use, na.rm = TRUE))
 
+head(renew_2022_state, 10)
+
+renew_2023_state <- renew_2023 %>%
+  group_by(state) %>%
+  summarise(total_renew_2023 = sum(renewable_use, na.rm = TRUE))
+
+head(renew_2023_state, 10)
+
+renew_compare <- renew_2022_state %>%
+  inner_join(renew_2023_state, by = "state")
+
+renew_compare <- renew_compare %>%
+  mutate(
+    absolute_change = total_renew_2023 - total_renew_2022,
+    percent_change = ((total_renew_2023 - total_renew_2022) / total_renew_2022) * 100
+  )
+
+renew_compare <- renew_compare %>%
+  arrange(desc(absolute_change))
+
+head(renew_compare, 10)
 ```
 
 ## **Part 4: Mapping Visualization**
 
 ```{r}
+library(sf)
+library(scales)
+library(maps)
 
+states_sf <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
+
+renew_compare_clean <- renew_compare %>%
+  mutate(state_name = tolower(state.name[match(toupper(state), state.abb)]))
+
+map_data <- states_sf %>%
+  left_join(renew_compare_clean, by = c("ID" = "state_name"))
+
+ggplot(map_data) +
+  geom_sf(aes(
+    fill = absolute_change), 
+    color = "white", 
+    linewidth = 0.2) +
+  scale_fill_gradient(
+    low = "lightyellow", 
+    high = "darkgreen",
+    name = "Increase (2023 – 2022)",
+    labels = comma) +
+  labs(
+    title = "Change in Renewable Energy Use by State (2022 to 2023)",
+    caption = "Data: renew-use-2022.csv and renew-use-2023.csv"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 12, face = "bold")
+  )
 ```
+
+## **Part 5: Analysis**
+
+Analysis: The map shows that renewable energy use increased the most in states like California, which clearly stands out from the rest of the country. Most other states saw smaller or steady changes, especially in the Midwest and South. Thi suggests that while renewable energy is growing overall, most of the progress is driven by a few key states with stronger clean energy policies. It helps visualize where that growth is happening and how uneven it still is across the U.S.
